@@ -1,0 +1,52 @@
+include:
+  - modules/references.gitlab-ci.yml
+
+test:phpunit:
+  image: $CI_PHP_IMAGE
+  stage: test
+  environment:
+    name: test
+  needs:
+    - install:php
+    - job: build:nodejs
+      optional: true
+    - job: build:nodejs:prod
+      optional: true
+  rules:
+    - if: $DISABLE_PHPUNIT
+      when: never
+    - !reference [.not_scheduled, rules]
+    - !reference [.have_php, rules]
+  services:
+    - mariadb:10.11
+  variables:
+    MYSQL_DATABASE: homestead
+    MYSQL_USER: homestead
+    MYSQL_PASSWORD: secret
+    MYSQL_ROOT_PASSWORD: root
+  before_script:
+    - |
+      apk add php${PHP_VERSION}-pdo_mysql php${PHP_VERSION}-session \
+        php${PHP_VERSION}-pecl-xdebug $PHP_EXTRADEPS
+    - |
+      sed -i 's/;zend_extension=xdebug.so/zend_extension=xdebug.so/;s/;xdebug.mode=off/xdebug.mode=coverage/' \
+        /etc/php${PHP_VERSION}/conf.d/50_xdebug.ini
+    - cd apps/backend
+    - test -e "$ENV_BACKEND" && cp "$ENV_BACKEND" .env || cp .env.example .env
+    - >
+      until nc -vzw 1 mariadb 3306; do
+        echo "Waiting for database online..." && sleep 1;
+      done
+    - php${PHP_VERSION} artisan key:generate
+  script:
+    - |
+      php${PHP_VERSION} ./vendor/bin/phpunit --coverage-text --colors=never \
+        --coverage-cobertura=coverage.cobertura.xml \
+        --log-junit=report.xml
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: apps/backend/coverage.cobertura.xml
+      junit: apps/backend/report.xml
+

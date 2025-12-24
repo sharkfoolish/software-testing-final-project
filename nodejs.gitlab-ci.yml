@@ -1,0 +1,63 @@
+include:
+  - modules/references.gitlab-ci.yml
+
+test:nodejs:
+  image: $CI_NODEJS_IMAGE
+  stage: test
+  environment:
+    name: test
+  needs:
+    - install:nodejs
+  rules:
+    - !reference [.not_scheduled, rules]
+    - !reference [.not_release, rules]
+    - !reference [.have_nodejs, rules]
+  before_script:
+    - !reference [.prepare_nodejs_environment, before_script]
+    - test -e "$ENV_FRONTEND" && cp "$ENV_FRONTEND" apps/frontend/.env
+    - test -e "$ENV_BACKEND" && cp "$ENV_BACKEND" apps/backend/.env
+  script:
+    - |
+      script=$(pnpm pkg get scripts.test)
+      if [ "$script" != "{}" ]; then
+        pnpm test
+      else
+        echo "No tests found, skipping."
+      fi
+
+test:nodejs:e2e:
+  image: $CI_NODEJS_IMAGE
+  stage: test
+  environment:
+    name: test
+  needs:
+    - install:nodejs
+  rules:
+    - !reference [.not_scheduled, rules]
+    - !reference [.not_release, rules]
+    - !reference [.have_nodejs_backend, rules]
+  services:
+    - mariadb:10.11
+    - nats:2.11
+    - valkey/valkey:8.1-alpine
+    - postgres:17.5
+  variables:
+    MYSQL_DATABASE: homestead
+    MYSQL_USER: homestead
+    MYSQL_PASSWORD: secret
+    MYSQL_ROOT_PASSWORD: root
+    POSTGRES_PASSWORD: postgres
+  before_script:
+    - !reference [.prepare_nodejs_environment, before_script]
+    - test -e "$ENV_FRONTEND" && cp "$ENV_FRONTEND" apps/frontend/.env
+    - test -e "$ENV_BACKEND" && cp "$ENV_BACKEND" apps/backend/.env
+  script:
+    - |
+      script=$(pnpm pkg get scripts.test:e2e)
+      if [ "$script" != "{}" ]; then
+        pnpm -F *backend exec prisma migrate deploy
+        pnpm test:e2e
+      else
+        echo "No e2e tests found, skipping."
+      fi
+
